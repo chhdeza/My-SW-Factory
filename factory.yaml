@@ -1,0 +1,140 @@
+# Software Factory configuration.
+# Secrets never live here - reference environment variables (see .env.example).
+
+provider: cursor            # default agent backend: cursor | claude
+topology: in_repo           # in_repo | control_plane
+
+models:
+  # Per-role provider/model overrides. Roles omitted here use the defaults.
+  default:
+    provider: cursor
+    model: composer-2.5
+  orchestrator:
+    provider: cursor
+    model: composer-2.5
+  # security:
+  #   provider: claude
+  #   model: claude-sonnet-latest
+
+budgets:
+  max_tokens_per_task: 2000000
+  max_cost_usd_per_task: 5.0
+  max_cost_usd_per_day: 25.0
+  max_concurrent_agents: 3
+
+sandbox:
+  mode: auto                # auto | docker | subprocess
+  docker_image: "python:3.12-slim"
+  network: none             # none | bridge (docker mode)
+  cpu_limit: 2.0
+  memory_limit_mb: 2048
+  timeout_seconds: 900
+  # Confined-subprocess fallback: only these executables may run (exact argv[0]).
+  command_allowlist:
+    - python
+    - pytest
+    - ruff
+    - pip
+    - uv
+    - npm
+    - npx
+    - node
+    - git
+    - actionlint
+
+gates:
+  quality:
+    enabled: true
+    ruff: { enabled: true, max_errors: 0 }
+    pytest: { enabled: true }
+    coverage: { enabled: true, min_percent: 80, allow_no_regression: true }
+    actionlint: { enabled: true, max_errors: 0 }
+    llm_review: { enabled: true }
+  security:
+    enabled: true
+    bandit: { enabled: true, fail_level: high }        # high fails, medium warns
+    semgrep: { enabled: true, fail_severity: error }
+    gitleaks: { enabled: true, max_findings: 0 }
+    dep_audit: { enabled: true, fail_severity: high }  # pip-audit / npm audit
+    llm_review: { enabled: true }
+  # Language profiles: python and node are built-in; add others here as commands.
+  profiles:
+    python:
+      detect: ["pyproject.toml", "requirements.txt", "setup.py"]
+    node:
+      detect: ["package.json"]
+  # custom:
+  #   go:
+  #     detect: ["go.mod"]
+  #     lint: ["golangci-lint", "run"]
+  #     test: ["go", "test", "./..."]
+
+merge:
+  auto_merge_low_risk: true
+  high_risk:
+    workflow_edits: true
+    dependency_upgrades: true
+    security_flagged: true
+    migrations: true
+    max_diff_lines: 500     # diffs larger than this are high-risk
+  needs_human_label: needs-human-review
+
+selfheal:
+  enabled: true
+  ci_review: true
+  max_reruns: 2                   # auto-rerun transient CI failures up to this cap
+  max_fix_attempts: 3             # per error signature
+  backoff_base_seconds: 60
+  workflow_edit_policy: strict    # strict = security gate + needs-human-review label
+  pr_token: github_token          # github_token | app | pat
+
+scheduler:
+  runner: local                   # local (factory scheduler daemon) | ci (routines.yml cron)
+  timezone: UTC
+  # Exact argv allowlist for routine `command` actions (no shell interpolation).
+  command_allowlist:
+    - ["git", "gc"]
+    - ["pip", "list", "--outdated"]
+
+schedules:
+  daily_log_review:
+    enabled: true
+    cron: "0 6 * * *"
+    action: { type: maintenance, ref: log_review }
+  daily_report:
+    enabled: true
+    cron: "0 7 * * *"
+    action: { type: report, ref: daily_summary }
+  weekly_dep_audit:
+    enabled: true
+    cron: "0 6 * * 1"
+    action: { type: maintenance, ref: dependency_audit }
+  stale_branch_cleanup:
+    enabled: false
+    cron: "0 5 * * 0"
+    action: { type: maintenance, ref: stale_branches }
+
+mcps: {}
+  # Optional MCP servers (off by default). Credentials referenced via env vars only.
+  # sonarqube:
+  #   enabled: false
+  #   transport: stdio
+  #   command: ["npx", "-y", "sonarqube-mcp-server"]
+  #   env: { SONAR_TOKEN: "${SONAR_TOKEN}" }
+
+tracing:
+  enabled: true
+  dir: .factory/traces
+  retention_days: 30
+  redact: true
+
+deploy:
+  environment: production         # protected GitHub Environment name
+  hook: noop                      # noop | compose_vm | cloudrun | custom module path
+  # cloudrun: { project: my-project, region: us-central1, service: my-app }
+  # compose_vm: { host: "", user: deploy, compose_file: docker-compose.yml }
+
+github:
+  # Owner/repo autodetected from `git remote` when empty.
+  repo: ""
+  default_branch: main

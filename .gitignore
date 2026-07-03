@@ -1,0 +1,28 @@
+# Environments and secrets
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Factory runtime state (traces, state db, scheduler jobstore, worktrees)
+.factory/
+
+# OpenTofu / Terraform
+infra/**/.terraform/
+infra/**/*.tfstate
+infra/**/*.tfstate.backup
+infra/**/*.tfvars
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
