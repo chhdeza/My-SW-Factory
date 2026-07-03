@@ -34,23 +34,34 @@ BIN_DIR = Path.home() / ".factory" / "bin"
 PIP_TIMEOUT_SECONDS = 600
 DOWNLOAD_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0)
 
-# x86_64 and arm64 spellings used across release asset names.
+# x86_64 and arm64 spellings used across release asset names, in preference
+# order ("x86" last: opengrep names its 64-bit builds *_x86).
 _MACHINE_ALIASES = {
-    "amd64": ("x64", "amd64", "x86_64"),
-    "x86_64": ("x64", "amd64", "x86_64"),
+    "amd64": ("x64", "amd64", "x86_64", "x86"),
+    "x86_64": ("x64", "amd64", "x86_64", "x86"),
     "arm64": ("arm64", "aarch64"),
     "aarch64": ("arm64", "aarch64"),
 }
 
+_SYSTEM_ALIASES = {
+    "windows": ("windows",),
+    "linux": ("linux",),           # also matches "manylinux"
+    "darwin": ("darwin", "osx", "macos"),
+}
+
+_NON_BINARY_SUFFIXES = (".sig", ".cert", ".pem", ".txt", ".json", ".sbom", ".md5",
+                        ".sha256", ".sha512")
+
 
 @dataclass(frozen=True)
 class ToolSpec:
-    name: str                  # executable looked up on PATH
-    kind: str                  # "pip" | "binary"
+    name: str                  # executable looked up on PATH (or dir for kind=git)
+    kind: str                  # "pip" | "binary" | "git"
     purpose: str
     pip_packages: tuple[str, ...] = ()
-    github_repo: str = ""      # owner/repo for binary releases
+    github_repo: str = ""      # owner/repo for binary releases or git clone
     windows_ok: bool = True
+    fallback_for: str = ""     # only install when the named tool is unsupported here
 
 
 CATALOG: tuple[ToolSpec, ...] = (
@@ -62,6 +73,10 @@ CATALOG: tuple[ToolSpec, ...] = (
              pip_packages=("pip-audit",)),
     ToolSpec("semgrep", "pip", "security gate: multi-language SAST",
              pip_packages=("semgrep",), windows_ok=False),
+    ToolSpec("opengrep", "binary", "security gate: SAST (semgrep fork, native Windows)",
+             github_repo="opengrep/opengrep", fallback_for="semgrep"),
+    ToolSpec("opengrep-rules", "git", "community SAST ruleset for opengrep",
+             github_repo="opengrep/opengrep-rules", fallback_for="semgrep"),
     ToolSpec("gitleaks", "binary", "security gate: secret detection",
              github_repo="gitleaks/gitleaks"),
     ToolSpec("actionlint", "binary", "quality gate: GitHub Actions workflow lint",
@@ -73,7 +88,13 @@ def _is_windows() -> bool:
     return platform.system().lower() == "windows"
 
 
+def _spec_by_name(name: str) -> ToolSpec | None:
+    return next((spec for spec in CATALOG if spec.name == name), None)
+
+
 def is_installed(spec: ToolSpec) -> bool:
+    if spec.kind == "git":
+        return (Path.home() / ".factory" / spec.name).is_dir()
     if shutil.which(spec.name) is not None:
         return True
     exe = f"{spec.name}.exe" if _is_windows() else spec.name
@@ -86,12 +107,26 @@ def supported_here(spec: ToolSpec) -> bool:
     return spec.windows_ok or not _is_windows()
 
 
+def needed_here(spec: ToolSpec) -> bool:
+    """Fallback tools are only needed where their primary is unsupported."""
+    if not spec.fallback_for:
+        return True
+    primary = _spec_by_name(spec.fallback_for)
+    return primary is None or not supported_here(primary)
+
+
 def tool_status() -> list[tuple[ToolSpec, str]]:
-    """(spec, status) for every catalog tool: installed | missing | unsupported."""
+    """(spec, status) for every catalog tool."""
     rows = []
     for spec in CATALOG:
         if not supported_here(spec):
-            status = "unsupported on this OS (runs in CI)"
+            fallback = next(
+                (s.name for s in CATALOG if s.fallback_for == spec.name), ""
+            )
+            status = (f"unsupported on this OS ({fallback} is used instead)"
+                      if fallback else "unsupported on this OS (runs in CI)")
+        elif not needed_here(spec):
+            status = f"not needed here ({spec.fallback_for} is available)"
         elif is_installed(spec):
             status = "installed"
         else:
@@ -114,20 +149,35 @@ def _pip_install(packages: tuple[str, ...]) -> str:
     return f"pip installed {', '.join(packages)}"
 
 
-def pick_asset(asset_names: list[str], system: str, machine: str) -> str | None:
-    """Pick the release asset for this platform (pure, for testability)."""
-    aliases = _MACHINE_ALIASES.get(machine.lower(), (machine.lower(),))
-    for name in asset_names:
-        lowered = name.lower()
-        if not lowered.endswith((".zip", ".tar.gz", ".tgz")):
-            continue
-        if system in lowered and any(alias in lowered for alias in aliases):
-            return name
+def pick_asset(
+    asset_names: list[str], system: str, machine: str, tool_name: str
+) -> str | None:
+    """Pick the release asset for this platform (pure, for testability).
+
+    Accepts archives (.zip/.tar.gz) and bare executables (opengrep ships
+    unarchived binaries). Only assets named ``<tool>_...`` are considered so
+    companion artifacts (e.g. opengrep-core_*) are never picked.
+    """
+    system_aliases = _SYSTEM_ALIASES.get(system.lower(), (system.lower(),))
+    machine_aliases = _MACHINE_ALIASES.get(machine.lower(), (machine.lower(),))
+    candidates = [
+        name for name in asset_names
+        if name.lower().startswith(f"{tool_name.lower()}_")
+        and not name.lower().endswith(_NON_BINARY_SUFFIXES)
+        and "checksum" not in name.lower()
+    ]
+    for march in machine_aliases:  # preference order matters (x64 before x86)
+        for name in candidates:
+            lowered = name.lower()
+            if any(s in lowered for s in system_aliases) and march in lowered:
+                return name
     return None
 
 
 def _extract_binary(payload: bytes, asset_name: str, tool_name: str) -> bytes:
     wanted = {tool_name, f"{tool_name}.exe"}
+    if not asset_name.endswith((".zip", ".tar.gz", ".tgz")):
+        return payload  # bare executable asset (e.g. opengrep_windows_x86.exe)
     if asset_name.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             for member in archive.namelist():
@@ -156,7 +206,7 @@ def _install_binary(spec: ToolSpec) -> str:
                                f"HTTP {release.status_code}")
         assets = {a["name"]: a["browser_download_url"]
                   for a in release.json().get("assets", [])}
-        chosen = pick_asset(list(assets), system, machine)
+        chosen = pick_asset(list(assets), system, machine, spec.name)
         if chosen is None:
             raise RuntimeError(
                 f"no {spec.name} release asset for {system}/{machine}"
@@ -176,21 +226,32 @@ def _install_binary(spec: ToolSpec) -> str:
     return f"downloaded {spec.name} {version} -> {target}"
 
 
+def _git_clone(spec: ToolSpec) -> str:
+    dest = Path.home() / ".factory" / spec.name
+    proc = subprocess.run(
+        ["git", "clone", "--depth", "1",
+         f"https://github.com/{spec.github_repo}.git", str(dest)],
+        capture_output=True, text=True, timeout=PIP_TIMEOUT_SECONDS,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"git clone {spec.github_repo} failed: {proc.stderr[-500:]}")
+    return f"cloned {spec.github_repo} -> {dest}"
+
+
 def install_missing() -> list[str]:
-    """Install every missing, platform-supported tool. Returns report lines."""
+    """Install every missing, platform-supported, needed tool. Returns report lines."""
     report: list[str] = []
+    installers = {"pip": lambda s: _pip_install(s.pip_packages),
+                  "binary": _install_binary, "git": _git_clone}
     for spec, status in tool_status():
         if status == "installed":
             report.append(f"[ok]   {spec.name}: already installed")
             continue
-        if status.startswith("unsupported"):
+        if status != "missing":
             report.append(f"[skip] {spec.name}: {status}")
             continue
         try:
-            if spec.kind == "pip":
-                detail = _pip_install(spec.pip_packages)
-            else:
-                detail = _install_binary(spec)
+            detail = installers[spec.kind](spec)
             report.append(f"[ok]   {spec.name}: {detail}")
         except (RuntimeError, OSError, subprocess.TimeoutExpired,
                 httpx.HTTPError, json.JSONDecodeError) as exc:

@@ -75,6 +75,9 @@ class SeverityGate(BaseModel):
 class SemgrepGate(BaseModel):
     enabled: bool = True
     fail_severity: str = "error"
+    # Rules source: "auto" = semgrep registry, or the opengrep-rules checkout
+    # when the opengrep engine is used. Override with a path/URL to pin rules.
+    rules: str = "auto"
 
 
 class GitleaksGate(BaseModel):

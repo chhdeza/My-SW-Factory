@@ -10,8 +10,10 @@ improvements autonomously - deployment is the only mandatory human gate.
   on shared interfaces, and dispatches parallel coder agents into sandboxed git worktrees. An
   integrator serializes merges and dispatches a conflict-resolver agent when needed.
 - **On-demand gates**: quality (ruff, pytest, coverage, actionlint, LLM review) and security
-  (bandit, semgrep, gitleaks, pip-audit, LLM review) with explicit thresholds. Python and
-  Node profiles are built-in; other languages are added via `factory.yaml`.
+  (bandit, semgrep/opengrep, gitleaks, pip-audit, LLM review) with explicit thresholds. The
+  SAST engine is auto-selected: semgrep where it runs natively, opengrep (its LGPL fork with
+  native Windows binaries) elsewhere. Python and Node profiles are built-in; other languages
+  are added via `factory.yaml`.
 - **Self-healing**: failures are classified and routed to a fix agent that opens a PR. Failed
   GitHub Actions runs are pulled, classified, auto-rerun when transient, and fixed otherwise.
   A daily log review files improvement issues. All healing is bounded (signature dedupe,
@@ -42,8 +44,8 @@ See [CONTRACT.md](CONTRACT.md) for the binding scope and security invariants, an
 pip install -e ".[dev]"          # add [cursor] and/or [claude] extras for your provider
 
 # 3. Bootstrap: writes factory.yaml and .env, and offers to install the
-#    open-source gate toolchain (ruff, pytest, bandit, pip-audit, semgrep,
-#    gitleaks, actionlint) so gate checks don't skip
+#    open-source gate toolchain (ruff, pytest, bandit, pip-audit, semgrep or
+#    opengrep + rules, gitleaks, actionlint) so gate checks don't skip
 factory init
 
 # (or manage the toolchain separately at any time)

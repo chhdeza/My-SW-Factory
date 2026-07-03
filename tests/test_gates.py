@@ -196,6 +196,70 @@ def test_enabled_mcp_servers_passed_to_security_reviewer(tmp_path, monkeypatch):
     assert backend.last_mcp_servers["sonarqube"]["env"]["SONAR_TOKEN"] == "tok"
 
 
+def test_sast_engine_prefers_semgrep(monkeypatch):
+    import factory.gates.security as security_mod
+
+    monkeypatch.setattr(security_mod.shutil, "which",
+                        lambda name: f"/usr/bin/{name}" if name == "semgrep" else None)
+    assert security_mod.sast_engine() == "semgrep"
+
+
+def test_sast_engine_falls_back_to_opengrep(monkeypatch):
+    import factory.gates.security as security_mod
+
+    monkeypatch.setattr(security_mod.shutil, "which", lambda name: None)
+    assert security_mod.sast_engine() == "opengrep"
+
+
+def test_sast_opengrep_without_rules_skips_with_hint(tmp_path, monkeypatch):
+    import factory.gates.security as security_mod
+
+    project = make_python_project(tmp_path)
+    cfg, sandbox, registry = make_env()
+    monkeypatch.setattr(security_mod, "sast_engine", lambda: "opengrep")
+    monkeypatch.setattr(security_mod, "OPENGREP_RULES_DIR", tmp_path / "no-rules")
+    gate = SecurityGate(cfg, sandbox, registry)
+
+    report = gate.run(project)
+
+    sast = next(c for c in report.checks if c.name.startswith("sast["))
+    assert sast.skipped
+    assert "factory tools install" in sast.details
+
+
+def test_sast_opengrep_uses_cloned_rules_and_parses_findings(tmp_path, monkeypatch):
+    import factory.gates.security as security_mod
+
+    project = make_python_project(tmp_path)
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    captured: dict = {}
+
+    class FakeSandbox:
+        def run(self, argv, *, cwd, timeout_seconds=None, env=None):
+            if argv[0] == "opengrep":
+                captured["argv"] = argv
+            from factory.sandbox import ExecResult
+
+            return ExecResult(exit_code=1, stdout=json.dumps({
+                "results": [{"path": "app.py", "check_id": "sqli",
+                             "extra": {"severity": "ERROR"}}]
+            }), stderr="")
+
+    cfg, _, registry = make_env()
+    monkeypatch.setattr(security_mod, "sast_engine", lambda: "opengrep")
+    monkeypatch.setattr(security_mod, "OPENGREP_RULES_DIR", rules_dir)
+    gate = SecurityGate(cfg, FakeSandbox(), registry)
+
+    report = gate.run(project)
+
+    assert captured["argv"][:3] == ["opengrep", "scan", "--config"]
+    assert captured["argv"][3] == str(rules_dir)
+    sast = next(c for c in report.checks if c.name == "sast[opengrep]")
+    assert not sast.passed and not sast.skipped
+    assert "sqli" in sast.details
+
+
 def test_severity_ordering():
     assert severity_at_least("critical", "high")
     assert severity_at_least("high", "high")

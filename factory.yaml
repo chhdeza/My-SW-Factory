@@ -43,6 +43,7 @@ sandbox:
     - actionlint
     - bandit
     - semgrep
+    - opengrep
     - gitleaks
     - pip-audit
 
@@ -57,7 +58,9 @@ gates:
   security:
     enabled: true
     bandit: { enabled: true, fail_level: high }        # high fails, medium warns
-    semgrep: { enabled: true, fail_severity: error }
+    # SAST engine is auto-selected: semgrep where native, opengrep on Windows.
+    # rules: auto = semgrep registry / cloned opengrep-rules; or a path/URL.
+    semgrep: { enabled: true, fail_severity: error, rules: auto }
     gitleaks: { enabled: true, max_findings: 0 }
     dep_audit: { enabled: true, fail_severity: high }  # pip-audit / npm audit
     llm_review: { enabled: true }

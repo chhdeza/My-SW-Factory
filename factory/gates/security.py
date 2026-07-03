@@ -1,5 +1,7 @@
-"""Security gate: bandit, semgrep, gitleaks, dependency audit, LLM review.
+"""Security gate: bandit, semgrep/opengrep, gitleaks, dependency audit, LLM review.
 
+SAST is engine-aware: semgrep where it runs natively, otherwise opengrep (an
+LGPL semgrep fork with native Windows binaries and compatible JSON output).
 Optional MCP servers (SonarQube, GitGuardian, Wiz, ...) declared in
 factory.yaml ``mcps:`` are passed to the LLM security reviewer so it can query
 them; they are off by default. Thresholds follow CONTRACT.md.
@@ -9,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 
 from factory.agents import compose_prompt
@@ -23,6 +26,20 @@ logger = logging.getLogger(__name__)
 
 MAX_DIFF_CHARS_FOR_REVIEW = 60_000
 _SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+OPENGREP_RULES_DIR = Path.home() / ".factory" / "opengrep-rules"
+
+
+def sast_engine() -> str:
+    """Prefer semgrep when present; otherwise opengrep (its Windows-capable fork)."""
+    from factory.toolchain import BIN_DIR
+
+    for engine in ("semgrep", "opengrep"):
+        if shutil.which(engine) is not None:
+            return engine
+        if (BIN_DIR / engine).exists() or (BIN_DIR / f"{engine}.exe").exists():
+            return engine
+    return "opengrep"  # let the sandbox report it missing -> SKIP
 
 
 def severity_at_least(severity: str, threshold: str) -> bool:
@@ -53,7 +70,7 @@ class SecurityGate:
         if gate_cfg.bandit.enabled and "python" in profiles:
             report.checks.append(self._bandit(worktree))
         if gate_cfg.semgrep.enabled:
-            report.checks.append(self._semgrep(worktree))
+            report.checks.append(self._sast(worktree))
         if gate_cfg.gitleaks.enabled:
             report.checks.append(self._gitleaks(worktree))
         if gate_cfg.dep_audit.enabled:
@@ -91,28 +108,39 @@ class SecurityGate:
         return CheckResult("bandit", passed=not blocking,
                            details=detail or f"no findings at/above {threshold}")
 
-    def _semgrep(self, worktree: Path) -> CheckResult:
+    def _sast(self, worktree: Path) -> CheckResult:
+        engine = sast_engine()
+        name = f"sast[{engine}]"
+        rules = self.config.gates.security.semgrep.rules
+        if rules == "auto" and engine == "opengrep":
+            # Opengrep has no registry "auto"; use the community ruleset that
+            # `factory tools install` clones.
+            if not OPENGREP_RULES_DIR.is_dir():
+                return CheckResult(
+                    name, passed=False, skipped=True,
+                    details="opengrep-rules not installed - run `factory tools install`",
+                )
+            rules = str(OPENGREP_RULES_DIR)
         try:
             result = self.sandbox.run(
-                ["semgrep", "scan", "--config", "auto", "--json", "--quiet"], cwd=worktree
+                [engine, "scan", "--config", rules, "--json", "--quiet"], cwd=worktree
             )
         except SandboxError as exc:
-            return CheckResult("semgrep", passed=False, skipped=True, details=str(exc))
+            return CheckResult(name, passed=False, skipped=True, details=str(exc))
         try:
             data = json.loads(result.stdout or "{}")
         except json.JSONDecodeError:
-            return CheckResult("semgrep", passed=False, skipped=True,
-                               details="unparseable semgrep output")
+            return CheckResult(name, passed=False, skipped=True,
+                               details=f"unparseable {engine} output")
         fail_sev = self.config.gates.security.semgrep.fail_severity.upper()
         blocking = [
             r for r in data.get("results", [])
             if r.get("extra", {}).get("severity", "").upper() == fail_sev
-            or (fail_sev == "ERROR" and r.get("extra", {}).get("severity") == "ERROR")
         ]
         detail = "; ".join(
             f"{r.get('path')}: {r.get('check_id')}" for r in blocking[:10]
         )
-        return CheckResult("semgrep", passed=not blocking,
+        return CheckResult(name, passed=not blocking,
                            details=detail or f"no findings at {fail_sev}")
 
     def _gitleaks(self, worktree: Path) -> CheckResult:
