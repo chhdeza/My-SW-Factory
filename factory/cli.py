@@ -105,7 +105,21 @@ def routine_run(name: str) -> None:
     from factory.scheduler.routines import run_routine_by_name
 
     result = run_routine_by_name(name)
-    click.echo(result)
+    click.echo(str(result))
+    sys.exit(0 if result.ok else 2)
+
+
+@routine.command("generate-ci")
+def routine_generate_ci() -> None:
+    """Write .github/workflows/routines.yml from configured schedules."""
+    from factory.config import load_config
+    from factory.scheduler.routines import generate_routines_workflow
+
+    config = load_config()
+    target = Path(".github/workflows/routines.yml")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(generate_routines_workflow(config), encoding="utf-8")
+    click.echo(f"wrote {target}")
 
 
 if __name__ == "__main__":
