@@ -41,6 +41,10 @@ sandbox:
     - node
     - git
     - actionlint
+    - bandit
+    - semgrep
+    - gitleaks
+    - pip-audit
 
 gates:
   quality:
