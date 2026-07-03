@@ -141,9 +141,21 @@ class SecurityGate:
                            details=detail or "no secrets detected")
 
     def _pip_audit(self, worktree: Path) -> CheckResult:
+        # Audit the TARGET's dependencies only; bare pip-audit would audit the
+        # factory's own virtualenv, which is misleading.
+        requirements = [
+            p.name for p in worktree.glob("requirements*.txt") if p.is_file()
+        ]
+        if not requirements:
+            return CheckResult("pip-audit", passed=True, skipped=True,
+                               details="no requirements*.txt to audit")
+        req_args: list[str] = []
+        for name in sorted(requirements):
+            req_args += ["-r", name]
         try:
-            result = self.sandbox.run(["pip-audit", "-f", "json", "--progress-spinner", "off"],
-                                      cwd=worktree)
+            result = self.sandbox.run(
+                ["pip-audit", *req_args, "-f", "json", "--progress-spinner", "off"],
+                cwd=worktree)
         except SandboxError as exc:
             return CheckResult("pip-audit", passed=False, skipped=True, details=str(exc))
         try:

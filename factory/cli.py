@@ -110,6 +110,29 @@ def routine_run(name: str) -> None:
 
 
 @main.group()
+def tools() -> None:
+    """Manage the open-source gate toolchain."""
+
+
+@tools.command("check")
+def tools_check() -> None:
+    """Show which gate tools are installed, missing, or unsupported."""
+    from factory.toolchain import tool_status
+
+    for spec, status in tool_status():
+        click.echo(f"{spec.name:<12} {status:<35} {spec.purpose}")
+
+
+@tools.command("install")
+def tools_install() -> None:
+    """Install every missing gate tool (pip packages + release binaries)."""
+    from factory.toolchain import install_missing
+
+    for line in install_missing():
+        click.echo(line)
+
+
+@main.group()
 def deploy() -> None:
     """Human-gated deployment."""
 

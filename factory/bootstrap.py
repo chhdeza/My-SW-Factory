@@ -114,6 +114,16 @@ def run_init(root: Path | None = None) -> None:
     env_path = write_env(answers, root)
     click.echo(f"\nwrote {config_path}")
     click.echo(f"wrote {env_path} (gitignored)")
+
+    if click.confirm(
+        "\nInstall the open-source gate tools now (ruff, pytest, bandit, pip-audit, "
+        "semgrep, gitleaks, actionlint) so gate checks don't skip?",
+        default=True,
+    ):
+        from factory.toolchain import install_missing
+
+        for line in install_missing():
+            click.echo(f"  {line}")
     click.echo(
         "\nNext steps:\n"
         "  1. factory run \"your first task\"\n"

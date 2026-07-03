@@ -41,8 +41,14 @@ See [CONTRACT.md](CONTRACT.md) for the binding scope and security invariants, an
 # 2. Install
 pip install -e ".[dev]"          # add [cursor] and/or [claude] extras for your provider
 
-# 3. Bootstrap: writes factory.yaml and .env
+# 3. Bootstrap: writes factory.yaml and .env, and offers to install the
+#    open-source gate toolchain (ruff, pytest, bandit, pip-audit, semgrep,
+#    gitleaks, actionlint) so gate checks don't skip
 factory init
+
+# (or manage the toolchain separately at any time)
+factory tools check
+factory tools install
 
 # 4. Run a task through the full pipeline
 factory run "add a /health endpoint with a test"
@@ -58,7 +64,8 @@ confined subprocess without it). An API key for Cursor and/or Anthropic.
 
 | Command | Purpose |
 |---|---|
-| `factory init` | Interactive bootstrap (provider, topology, models, budgets, sandbox, mcps). |
+| `factory init` | Interactive bootstrap (provider, topology, models, budgets, sandbox, mcps) + optional gate-tool install. |
+| `factory tools check` / `install` | Show or install the open-source gate toolchain (pip tools + gitleaks/actionlint release binaries into `~/.factory/bin`). |
 | `factory run "<task>"` | Run the full pipeline for a task. `--issue <n>` pulls a GitHub issue. |
 | `factory heal` | Trigger self-heal / CI review manually. |
 | `factory dashboard` | Serve the dashboard. `--with-scheduler` embeds the routine daemon. |

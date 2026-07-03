@@ -126,11 +126,24 @@ class SandboxExecutor:
     def _exec(
         argv: list[str], *, cwd: Path | None, timeout: int, env: dict[str, str] | None
     ) -> ExecResult:
-        merged_env = None
-        if env:
-            import os
+        import os
+        import sys
 
-            merged_env = {**os.environ, **env}
+        merged_env = {**os.environ, **(env or {})}
+        # Make gate tools resolvable regardless of the caller's PATH:
+        # ~/.factory/bin holds downloaded binaries (factory tools install) and
+        # the interpreter's script dir holds pip-installed ones.
+        extra_dirs = [Path.home() / ".factory" / "bin", Path(sys.executable).parent]
+        for directory in extra_dirs:
+            if directory.is_dir():
+                merged_env["PATH"] = (
+                    str(directory) + os.pathsep + merged_env.get("PATH", "")
+                )
+        # Resolve the executable against the merged PATH ourselves - Windows
+        # ignores the child env's PATH when locating the binary.
+        resolved = shutil.which(argv[0], path=merged_env.get("PATH"))
+        if resolved:
+            argv = [resolved, *argv[1:]]
         try:
             proc = subprocess.run(
                 argv,
