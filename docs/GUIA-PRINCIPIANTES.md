@@ -31,8 +31,8 @@ botón de aprobación.
 
 ## 2. Lo que necesita antes de empezar (se hace una sola vez)
 
-Necesita tres programas y una llave. Todo es gratuito, excepto la llave, que viene
-con una cuenta de Cursor.
+Necesita dos programas y una llave. Los programas son gratuitos; la llave viene con
+una cuenta en un proveedor de IA — usted elige cuál.
 
 ### 2.1 Instalar Python (el motor)
 
@@ -47,12 +47,20 @@ con una cuenta de Cursor.
 2. Ejecute el instalador y haga clic en "Next" en todas las pantallas. Las opciones
    predeterminadas están bien.
 
-### 2.3 Obtener el cerebro de la fábrica: una llave (API key) de Cursor
+### 2.3 Obtener el cerebro de la fábrica: una llave (API key) de un proveedor de IA
 
-1. Cree una cuenta en https://cursor.com (hay un plan gratuito).
-2. Vaya a **Dashboard → Integrations** y cree una **API key**.
-3. Cópiela en un lugar seguro. Se ve así: `cursor_abc123...`.
-   Trátela como una contraseña: no la comparta ni la publique en ningún lado.
+Los asistentes de la fábrica funcionan con un proveedor de IA. Actualmente funciona
+con **dos proveedores — elija el que prefiera** (solo necesita uno):
+
+| Proveedor | Dónde obtener la llave | La llave se ve así |
+|---|---|---|
+| **Cursor** | https://cursor.com → Dashboard → Integrations → API key | `cursor_abc123...` |
+| **Anthropic (Claude)** | https://console.anthropic.com → API keys → Create key | `sk-ant-abc123...` |
+
+Copie la llave en un lugar seguro. Trátela como una contraseña: no la comparta ni
+la publique en ningún lado. (La fábrica está construida para poder agregar otros
+proveedores con el tiempo — si su institución usa uno distinto, consulte con un
+colega técnico.)
 
 ### 2.4 Abrir una terminal
 
@@ -78,12 +86,14 @@ cd mi-primera-app
 
 ## 4. Instalar la fábrica (5 minutos, una vez por proyecto)
 
-Pegue estos tres comandos uno por uno, presionando Enter después de cada uno:
+Pegue estos tres comandos uno por uno, presionando Enter después de cada uno.
+En el tercer comando, use el nombre del proveedor que eligió en el paso 2.3 —
+`cursor` o `claude`:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -e ".[dev,cursor]"
+pip install -e ".[dev,cursor]"     # o bien:  pip install -e ".[dev,claude]"
 ```
 
 > Si el segundo comando se queja de "execution policy", ejecute esto una vez y
@@ -102,7 +112,11 @@ factory init
 La fábrica le hará algunas preguntas. **Presione Enter para aceptar todas las
 opciones predeterminadas**, excepto:
 
-- Cuando pida **CURSOR_API_KEY**, pegue la llave del paso 2.3.
+- Cuando pregunte por el **proveedor de agentes predeterminado** ("default agent
+  provider"), escriba el que eligió en el paso 2.3: `cursor` o `claude`.
+- Cuando pida la llave correspondiente — **CURSOR_API_KEY** o
+  **ANTHROPIC_API_KEY** — pegue la llave del paso 2.3. (Deje la otra vacía
+  presionando Enter.)
 - Cuando pregunte *"Install the open-source gate tools now?"* responda **y** (sí).
   Esto instala las herramientas de inspección gratuitas para que las revisiones de
   calidad y seguridad funcionen.
@@ -225,15 +239,16 @@ revise.
 
 | Lo que ve | Qué significa | Qué hacer |
 |---|---|---|
-| `CURSOR_API_KEY is not set` | La fábrica no encuentra su llave | Ejecute `factory init` de nuevo y pegue la llave |
+| `CURSOR_API_KEY is not set` / `ANTHROPIC_API_KEY is not set` | La fábrica no encuentra la llave de su proveedor | Ejecute `factory init` de nuevo y pegue la llave |
 | `gates failed after self-heal` | Las revisiones fallaron y la auto-reparación no pudo | Intente de nuevo con una descripción más sencilla |
 | `budget exceeded` | La tarea llegó a su límite de gasto (una protección) | Suba el límite en `factory.yaml` o simplifique la petición |
 | La terminal dice que `factory` no se reconoce | La caja de herramientas no está activa | Ejecute primero `.venv\Scripts\Activate.ps1` |
 
 ## 11. Cuánto cuesta
 
-La fábrica en sí es gratuita y de código abierto. El único costo es el uso de IA de
-su cuenta de Cursor. La fábrica tiene límites de gasto integrados (aproximadamente
+La fábrica en sí es gratuita y de código abierto. El único costo es el uso de IA
+que le cobra su proveedor (Cursor o Anthropic). La fábrica tiene límites de gasto
+integrados (aproximadamente
 $5 por tarea y $25 por día de forma predeterminada) y el tablero muestra el gasto
 estimado, así que no hay sorpresas. Una funcionalidad pequeña normalmente cuesta
 entre unos centavos y unas decenas de centavos de dólar.
