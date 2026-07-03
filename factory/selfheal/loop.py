@@ -61,6 +61,7 @@ class GateHealer:
             )
             return False
         attempt = self.ledger.record(signature)
+        self.pipeline.metrics.record_event("heal_started", task.id, signature)
 
         repo_root = self.pipeline.repo_root
         fix_path = repo_root / ".factory" / "worktrees" / f"heal-{task.id}-{attempt}"
@@ -92,6 +93,8 @@ class GateHealer:
                 return False
             after = git(["rev-parse", "HEAD"], cwd=fix_path)
             healed = after != before
+            if healed:
+                self.pipeline.metrics.record_event("fix_applied", task.id, signature)
             if not healed:
                 logger.warning("fixer agent produced no commit",
                                extra={"operation": "selfheal", "signature": signature})

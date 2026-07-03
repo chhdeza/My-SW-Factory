@@ -57,7 +57,11 @@ class Pipeline:
         self.config = config
         self.store = store
         self.registry = registry
+        from factory.metrics.observe import attach_observability
+
+        self.metrics, self.tracer = attach_observability(registry, repo_root, config)
         self.integrator = Integrator(repo_root, config, store, registry)
+        self.integrator.metrics = self.metrics
         self.orchestrator = Orchestrator(repo_root, config, store, registry, self.integrator)
         self.sandbox = SandboxExecutor(config.sandbox)
         self.quality_gate = QualityGate(config, self.sandbox, registry)
@@ -82,10 +86,14 @@ class Pipeline:
     # -- intake ------------------------------------------------------------
 
     def intake_text(self, text: str) -> Task:
-        return task_from_text(self.store, text, source="cli")
+        task = task_from_text(self.store, text, source="cli")
+        self.metrics.record_event("task_created", task.id, task.title)
+        return task
 
     def intake_issue(self, issue_number: int) -> Task:
-        return task_from_issue(self.store, self.github(), issue_number)
+        task = task_from_issue(self.store, self.github(), issue_number)
+        self.metrics.record_event("task_created", task.id, task.title)
+        return task
 
     def github(self) -> GitHubClient:
         if self._github is None:
@@ -115,6 +123,10 @@ class Pipeline:
     def gate_and_merge(self, task: Task, branch: str) -> Outcome:
         """Gates -> (self-heal) -> reviewer -> PR -> risk-based merge."""
         self.store.update_task(task.id, status=TaskStatus.GATING)
+        base = self.config.github.default_branch
+        commit_count = git(["rev-list", "--count", f"{base}..{branch}"], cwd=self.repo_root)
+        for _ in range(int(commit_count or 0)):
+            self.metrics.record_event("commit", task.id)
         reports, gate_worktree = self._run_gates(task, branch)
 
         if not all(r.passed for r in reports):
@@ -166,6 +178,11 @@ class Pipeline:
             changed_files, _, diff_text = self._diff_stats(branch)
             quality = self.quality_gate.run(gate_path, diff_text, changed_files)
             security = self.security_gate.run(gate_path, diff_text)
+            for report in (quality, security):
+                self.metrics.record_event(
+                    "gate_passed" if report.passed else "gate_failed",
+                    task.id, report.summary(),
+                )
             return [quality, security], gate_path
         finally:
             self.integrator._remove_worktree_path(gate_path)
@@ -219,6 +236,7 @@ class Pipeline:
                               body=body)
         number = int(pr["number"])
         self.store.update_task(task.id, status=TaskStatus.PR_OPEN)
+        self.metrics.record_event("pr_opened", task.id, f"#{number}")
 
         if decision == "needs_human":
             github.add_labels(number, [self.config.merge.needs_human_label])
@@ -228,6 +246,7 @@ class Pipeline:
         if github.pr_checks_passed(number):
             github.merge_pr(number)
             self.store.update_task(task.id, status=TaskStatus.MERGED)
+            self.metrics.record_event("pr_merged", task.id, f"#{number}")
             return Outcome(ok=True, branch=branch, pr_number=number, decision=decision,
                            summary=f"PR #{number} auto-merged (low risk, gates + CI green)")
         return Outcome(ok=True, branch=branch, pr_number=number, decision="needs_human",
@@ -253,6 +272,7 @@ class Pipeline:
                 finally:
                     self.integrator._remove_worktree_path(merge_path)
             self.store.update_task(task.id, status=TaskStatus.MERGED)
+            self.metrics.record_event("pr_merged", task.id, f"local merge of {branch}")
             return Outcome(ok=True, branch=branch, decision=decision,
                            summary=f"merged {branch} into {base} locally (low risk)")
         self.store.update_task(task.id, status=TaskStatus.PR_OPEN)

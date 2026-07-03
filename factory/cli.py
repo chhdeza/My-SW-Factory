@@ -109,6 +109,62 @@ def routine_run(name: str) -> None:
     sys.exit(0 if result.ok else 2)
 
 
+@main.group()
+def deploy() -> None:
+    """Human-gated deployment."""
+
+
+@deploy.command("request")
+@click.argument("ref")
+def deploy_request(ref: str) -> None:
+    """Request a deploy of REF (branch/tag/sha); a human must approve it."""
+    from factory.config import load_config
+    from factory.deploy.gate import DeployGate
+
+    gate = DeployGate(Path.cwd(), load_config())
+    click.echo(gate.request(ref))
+
+
+@deploy.command("approve")
+def deploy_approve() -> None:
+    """Approve the pending deploy (you are the human gate)."""
+    from factory.config import load_config
+    from factory.deploy.gate import DeployGate
+
+    gate = DeployGate(Path.cwd(), load_config())
+    click.echo(gate.approve(approver="cli"))
+
+
+@deploy.command("status")
+def deploy_status() -> None:
+    """Show pending deploy and recent history."""
+    from factory.config import load_config
+    from factory.deploy.gate import DeployGate
+
+    status = DeployGate(Path.cwd(), load_config()).status()
+    if status.pending:
+        state = "approved" if status.approved else "awaiting approval"
+        click.echo(f"pending: {status.pending} ({state})")
+    else:
+        click.echo("nothing pending")
+    for entry in status.history:
+        click.echo(f"  {entry.get('requested_at')} {entry.get('ref')} -> "
+                   f"{entry.get('outcome')}")
+
+
+@deploy.command("execute")
+def deploy_execute() -> None:
+    """Execute the approved deploy (fails if not approved)."""
+    from factory.config import load_config
+    from factory.deploy.runner import DeployError, DeployRunner
+
+    try:
+        click.echo(DeployRunner(Path.cwd(), load_config()).execute())
+    except DeployError as exc:
+        click.echo(f"refused: {exc}", err=True)
+        sys.exit(2)
+
+
 @routine.command("generate-ci")
 def routine_generate_ci() -> None:
     """Write .github/workflows/routines.yml from configured schedules."""

@@ -58,6 +58,7 @@ class Integrator:
         self.store = store
         self.registry = registry
         self.worktrees_dir = self.repo_root / ".factory" / "worktrees"
+        self.metrics = None  # optionally set by the pipeline (MetricsStore)
 
     # -- worktree lifecycle -------------------------------------------------
 
@@ -174,6 +175,8 @@ class Integrator:
                     git(["commit", "--no-edit"], cwd=integ_path)
                 except GitError:
                     pass  # merge already committed
+                if self.metrics is not None:
+                    self.metrics.record_event("conflict_resolved", unit.task_id, unit.id)
                 return
             logger.warning(
                 "conflict resolution attempt failed",

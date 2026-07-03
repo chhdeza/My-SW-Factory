@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from factory.backends.base import AgentBackend, RunResult
 from factory.config import FactoryConfig, Provider
 
 logger = logging.getLogger(__name__)
+
+# Called after every agent run: (role, prompt, result) -> None.
+Observer = Callable[[str, str, RunResult], None]
 
 
 class BackendRegistry:
@@ -21,6 +25,7 @@ class BackendRegistry:
     def __init__(self, config: FactoryConfig) -> None:
         self._config = config
         self._backends: dict[Provider, AgentBackend] = {}
+        self.observer: Observer | None = None
 
     def register(self, provider: Provider, backend: AgentBackend) -> None:
         """Register a pre-built backend (used by tests and custom providers)."""
@@ -76,4 +81,6 @@ class BackendRegistry:
                 "tokens": result.usage.total_tokens,
             },
         )
+        if self.observer is not None:
+            self.observer(role, prompt, result)
         return result
