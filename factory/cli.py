@@ -25,7 +25,7 @@ def main() -> None:
 @main.command()
 def init() -> None:
     """Interactive bootstrap: writes factory.yaml and .env."""
-    from scripts.init import run_init
+    from factory.bootstrap import run_init
 
     run_init()
 

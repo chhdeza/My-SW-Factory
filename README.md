@@ -35,7 +35,9 @@ See [CONTRACT.md](CONTRACT.md) for the binding scope and security invariants, an
 ## Quick start
 
 ```bash
-# 1. Use this repo as a GitHub template (or clone it into your project)
+# 1. Use this repo as a GitHub template (or clone it into your project).
+#    Maintainers: enable Settings -> General -> "Template repository" once,
+#    then every new project starts from "Use this template".
 # 2. Install
 pip install -e ".[dev]"          # add [cursor] and/or [claude] extras for your provider
 
