@@ -34,6 +34,10 @@ improvements autonomously - deployment is the only mandatory human gate.
 See [CONTRACT.md](CONTRACT.md) for the binding scope and security invariants, and
 [AGENTS.md](AGENTS.md) for the agent roster and operating rules.
 
+**New to all of this?** There is a step-by-step guide for non-programmers:
+[docs/BEGINNERS-GUIDE.md](docs/BEGINNERS-GUIDE.md) (English) /
+[docs/GUIA-PRINCIPIANTES.md](docs/GUIA-PRINCIPIANTES.md) (español).
+
 ## Quick start
 
 ```bash
