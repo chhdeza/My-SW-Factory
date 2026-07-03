@@ -1,0 +1,45 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch/tag/sha to deploy
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+  # id-token: write   # uncomment only if using OIDC to cloud providers
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # The protected Environment enforces required human reviewers - the job
+    # blocks here until someone approves it in the GitHub UI.
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install factory
+        run: pip install -e .
+      - name: Execute deploy hook
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          # Environment approval IS the human gate in CI: request+approve+execute.
+          factory deploy request "${{ inputs.ref }}"
+          factory deploy approve
+          factory deploy execute

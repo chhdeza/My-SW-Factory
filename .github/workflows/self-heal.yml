@@ -1,0 +1,42 @@
+name: Self-heal CI
+
+on:
+  workflow_run:
+    workflows: [CI, "Factory run", "Factory routines"]
+    types: [completed]
+
+permissions:
+  actions: write        # read failed logs + rerun failed jobs
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: self-heal
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install factory
+        run: pip install -e ".[cursor,claude]"
+      - name: Configure git identity
+        run: |
+          git config user.name "software-factory[bot]"
+          git config user.email "factory@users.noreply.github.com"
+      - name: Review failed run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: factory heal --run-id "${{ github.event.workflow_run.id }}"

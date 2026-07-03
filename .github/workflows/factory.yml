@@ -1,0 +1,57 @@
+name: Factory run
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task description for the factory
+        required: false
+      issue:
+        description: GitHub issue number to run
+        required: false
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: factory-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # Fires on manual dispatch, or when the 'factory' label is added to an issue.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install factory
+        run: pip install -e ".[cursor,claude]"
+      - name: Configure git identity
+        run: |
+          git config user.name "software-factory[bot]"
+          git config user.email "factory@users.noreply.github.com"
+      - name: Run task
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "${{ github.event.issue.number }}" ]; then
+            factory run --issue "${{ github.event.issue.number }}"
+          elif [ -n "${{ inputs.issue }}" ]; then
+            factory run --issue "${{ inputs.issue }}"
+          else
+            factory run "${{ inputs.task }}"
+          fi
